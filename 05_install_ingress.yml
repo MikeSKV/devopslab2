@@ -1,5 +1,5 @@
 ---
-- name: Install Ingress Controller (Fixed DNS & Registry)
+- name: Install Ingress Controller (Fixed for RU region & DNS)
   hosts: k8s_master
   become: yes
   tasks:
@@ -31,7 +31,9 @@
     - name: Apply Ingress Manifest
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
+        # Удаляем старое (чтобы сбросить ImagePullBackOff)
         kubectl delete -f /tmp/ingress-deploy.yaml --ignore-not-found=true
+        # Применяем новое
         kubectl apply -f /tmp/ingress-deploy.yaml
 
     - name: Wait for Ingress ready
