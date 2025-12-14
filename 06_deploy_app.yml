@@ -1,5 +1,5 @@
 ---
-- name: Deploy Demo App (Paulbouwer)
+- name: Deploy Demo App (Yandex Mirror)
   hosts: k8s_master
   become: yes
   tasks:
@@ -7,13 +7,11 @@
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
         
-        # Удаляем старое (чтобы не было конфликтов портов)
-        kubectl delete deployment demo-app --ignore-not-found=true
-        kubectl delete service demo-app --ignore-not-found=true
+        # Чистим старое
         kubectl delete deployment hello-kubernetes --ignore-not-found=true
         kubectl delete service hello-kubernetes-service --ignore-not-found=true
         
-        # Применяем манифест из методички (через cat <<EOF)
+        # Создаем Deployment (используем зеркало Яндекса)
         cat <<EOF | kubectl apply -f -
         apiVersion: apps/v1
         kind: Deployment
@@ -31,9 +29,10 @@
             spec:
               containers:
               - name: hello-kubernetes
-                image: paulbouwer/hello-kubernetes:1.10
+                # Используем зеркало Яндекса для Nginx (оно точно доступно)
+                image: cr.yandex/mirror/nginx:alpine
                 ports:
-                - containerPort: 8080
+                - containerPort: 80
         ---
         apiVersion: v1
         kind: Service
@@ -42,7 +41,7 @@
         spec:
           ports:
           - port: 80
-            targetPort: 8080
+            targetPort: 80
           selector:
             app: hello-kubernetes
         EOF
