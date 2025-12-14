@@ -43,3 +43,4 @@
         module: copy 
         content: "{{ join_command_raw.stdout }}" 
         dest: "/tmp/k8s_join_command"
+      become: no # ВАЖНО: Отключаем sudo для локального действия внутри контейнера
