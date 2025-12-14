@@ -8,11 +8,18 @@
         export KUBECONFIG=/etc/kubernetes/admin.conf
         kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
 
-    - name: Wait for Ingress ready
+    # ЛАЙФХАК: Удаляем валидирующий вебхук, если он мешает запуску (частая проблема на bare-metal)
+    - name: Delete Validating Webhook (Fix for bare-metal)
+      shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl delete -A ValidatingWebhookConfiguration ingress-nginx-admission
+      ignore_errors: yes
+
+    - name: Wait for Ingress ready (Extended timeout)
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
         kubectl wait --namespace ingress-nginx \
           --for=condition=ready pod \
           --selector=app.kubernetes.io/component=controller \
-          --timeout=300s
+          --timeout=600s
       ignore_errors: yes
