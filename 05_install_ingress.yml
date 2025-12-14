@@ -1,41 +1,47 @@
 ---
-- name: Install Ingress Controller (Fixed for RU region & DNS)
+- name: Install Ingress Controller (No Webhook - Best for Lab)
   hosts: k8s_master
   become: yes
   tasks:
-    # 0. ЧИНИМ DNS (Принудительно ставим 8.8.8.8, чтобы скачать файлы)
-    - name: Fix DNS resolver temporarily
-      shell: |
-        echo "nameserver 8.8.8.8" > /etc/resolv.conf
+    # 0. Временный фикс DNS
+    - name: Fix DNS resolver
+      shell: echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
-    # 1. Скачиваем официальный манифест
+    # 1. Скачиваем манифест
     - name: Download Ingress Manifest
       get_url:
         url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
         dest: /tmp/ingress-deploy.yaml
 
-    # 2. ЖЕСТКАЯ ЗАМЕНА РЕЕСТРОВ (Hack для обхода блокировок registry.k8s.io)
+    # 2. МЕНЯЕМ ОБРАЗ КОНТРОЛЛЕРА на доступный
     - name: Replace Controller Image
       replace:
         path: /tmp/ingress-deploy.yaml
         regexp: 'registry.k8s.io/ingress-nginx/controller:v1.10.1.*'
         replace: 'docker.io/ingressnginx/controller:v1.10.1'
 
-    - name: Replace Webhook Image
-      replace:
-        path: /tmp/ingress-deploy.yaml
-        regexp: 'registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.1.*'
-        replace: 'docker.io/jettech/kube-webhook-certgen:v1.5.2'
+    # 3. УДАЛЯЕМ WEBHOOK CONFIGURATION (чтобы не запускать проблемные джобы)
+    # Это грубый, но эффективный метод для лабы. Мы просто закомментируем секцию ValidatingWebhookConfiguration
+    - name: Remove ValidatingWebhookConfiguration
+      shell: |
+        sed -i '/kind: ValidatingWebhookConfiguration/,/---/d' /tmp/ingress-deploy.yaml
+        # Также удаляем Job-ы, которые создают сертификаты (они нам теперь не нужны)
+        sed -i '/kind: Job/,/---/d' /tmp/ingress-deploy.yaml
+        sed -i '/kind: Job/,/---/d' /tmp/ingress-deploy.yaml 
 
-    # 3. Применяем исправленный манифест
+    # 4. Применяем
     - name: Apply Ingress Manifest
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        # Удаляем старое (чтобы сбросить ImagePullBackOff)
+        
+        # Сначала удалим ВСЁ старое, чтобы убить висящие джобы
         kubectl delete -f /tmp/ingress-deploy.yaml --ignore-not-found=true
-        # Применяем новое
+        kubectl delete jobs -n ingress-nginx --all --ignore-not-found=true
+        
+        # Применяем облегченный манифест
         kubectl apply -f /tmp/ingress-deploy.yaml
 
+    # 5. Ждем
     - name: Wait for Ingress ready
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
