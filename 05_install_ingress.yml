@@ -1,25 +1,47 @@
 ---
-- name: Install Ingress Controller
+- name: Install Ingress Controller (Fixed for RU region)
   hosts: k8s_master
   become: yes
   tasks:
+    # 1. Скачиваем официальный манифест
+    - name: Download Ingress Manifest
+      get_url:
+        url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
+        dest: /tmp/ingress-deploy.yaml
+
+    # 2. ЖЕСТКАЯ ЗАМЕНА РЕЕСТРОВ (Hack для обхода блокировок registry.k8s.io)
+    # Заменяем registry.k8s.io на доступное зеркало (например, public.ecr.aws или другое)
+    # Либо просто используем старый добрый "sed" чтобы подменить образы на те, что точно качаются.
+    
+    # Заменяем образ контроллера
+    - name: Replace Controller Image
+      replace:
+        path: /tmp/ingress-deploy.yaml
+        regexp: 'registry.k8s.io/ingress-nginx/controller:v1.10.1.*'
+        replace: 'docker.io/ingressnginx/controller:v1.10.1'
+
+    # Заменяем образ для webhook (он тоже часто не качается)
+    - name: Replace Webhook Image
+      replace:
+        path: /tmp/ingress-deploy.yaml
+        regexp: 'registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.1.*'
+        replace: 'docker.io/jettech/kube-webhook-certgen:v1.5.2' 
+        # (Используем jettech или другой публичный, т.к. официального зеркала иногда нет)
+
+    # 3. Применяем исправленный манифест
     - name: Apply Ingress Manifest
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
+        # Сначала удалим старое, чтобы сбросить зависшие поды
+        kubectl delete -f /tmp/ingress-deploy.yaml --ignore-not-found=true
+        # Применяем новое
+        kubectl apply -f /tmp/ingress-deploy.yaml
 
-    # ЛАЙФХАК: Удаляем валидирующий вебхук, если он мешает запуску (частая проблема на bare-metal)
-    - name: Delete Validating Webhook (Fix for bare-metal)
-      shell: |
-        export KUBECONFIG=/etc/kubernetes/admin.conf
-        kubectl delete -A ValidatingWebhookConfiguration ingress-nginx-admission
-      ignore_errors: yes
-
-    - name: Wait for Ingress ready (Extended timeout)
+    - name: Wait for Ingress ready
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
         kubectl wait --namespace ingress-nginx \
           --for=condition=ready pod \
           --selector=app.kubernetes.io/component=controller \
-          --timeout=600s
+          --timeout=300s
       ignore_errors: yes
