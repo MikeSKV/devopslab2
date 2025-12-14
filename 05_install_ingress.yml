@@ -1,8 +1,13 @@
 ---
-- name: Install Ingress Controller (Fixed for RU region)
+- name: Install Ingress Controller (Fixed DNS & Registry)
   hosts: k8s_master
   become: yes
   tasks:
+    # 0. ЧИНИМ DNS (Принудительно ставим 8.8.8.8, чтобы скачать файлы)
+    - name: Fix DNS resolver temporarily
+      shell: |
+        echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
     # 1. Скачиваем официальный манифест
     - name: Download Ingress Manifest
       get_url:
@@ -10,31 +15,23 @@
         dest: /tmp/ingress-deploy.yaml
 
     # 2. ЖЕСТКАЯ ЗАМЕНА РЕЕСТРОВ (Hack для обхода блокировок registry.k8s.io)
-    # Заменяем registry.k8s.io на доступное зеркало (например, public.ecr.aws или другое)
-    # Либо просто используем старый добрый "sed" чтобы подменить образы на те, что точно качаются.
-    
-    # Заменяем образ контроллера
     - name: Replace Controller Image
       replace:
         path: /tmp/ingress-deploy.yaml
         regexp: 'registry.k8s.io/ingress-nginx/controller:v1.10.1.*'
         replace: 'docker.io/ingressnginx/controller:v1.10.1'
 
-    # Заменяем образ для webhook (он тоже часто не качается)
     - name: Replace Webhook Image
       replace:
         path: /tmp/ingress-deploy.yaml
         regexp: 'registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.1.*'
-        replace: 'docker.io/jettech/kube-webhook-certgen:v1.5.2' 
-        # (Используем jettech или другой публичный, т.к. официального зеркала иногда нет)
+        replace: 'docker.io/jettech/kube-webhook-certgen:v1.5.2'
 
     # 3. Применяем исправленный манифест
     - name: Apply Ingress Manifest
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        # Сначала удалим старое, чтобы сбросить зависшие поды
         kubectl delete -f /tmp/ingress-deploy.yaml --ignore-not-found=true
-        # Применяем новое
         kubectl apply -f /tmp/ingress-deploy.yaml
 
     - name: Wait for Ingress ready
