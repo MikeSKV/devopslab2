@@ -1,15 +1,13 @@
 ---
-- name: Install Ingress Controller (Verified Manifest)
+- name: Install Ingress Controller (Mirror Fix)
   hosts: k8s_master
   become: yes
   tasks:
-    # 0. Fix DNS
+    # 0. Fix DNS (на всякий случай повторяем)
     - name: Fix DNS resolver
       shell: echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
-    # 1. Скачиваем "чистый" манифест
-    # Я использую gist или raw ссылку, где уже внесены правки. 
-    # Если ссылка недоступна, создадим файл на лету через copy/content.
+    # 1. Создаем манифест вручную (с правильным зеркалом)
     - name: Create Clean Ingress Manifest
       copy:
         dest: /tmp/ingress-clean.yaml
@@ -39,54 +37,12 @@
               app.kubernetes.io/instance: ingress-nginx
             name: ingress-nginx
           rules:
-          - apiGroups:
-            - ""
-            resources:
-            - configmaps
-            - endpoints
-            - nodes
-            - pods
-            - secrets
-            - namespaces
-            verbs:
-            - list
-            - watch
-          - apiGroups:
-            - ""
-            resources:
-            - nodes
-            verbs:
-            - get
-          - apiGroups:
-            - ""
-            resources:
-            - services
-            verbs:
-            - get
-            - list
-            - watch
-          - apiGroups:
-            - networking.k8s.io
-            resources:
-            - ingresses
-            verbs:
-            - get
-            - list
-            - watch
-          - apiGroups:
-            - networking.k8s.io
-            resources:
-            - ingresses/status
-            verbs:
-            - update
-          - apiGroups:
-            - networking.k8s.io
-            resources:
-            - ingressclasses
-            verbs:
-            - get
-            - list
-            - watch
+          - apiGroups: [""]
+            resources: ["configmaps", "endpoints", "nodes", "pods", "secrets", "namespaces", "services"]
+            verbs: ["list", "watch", "get"]
+          - apiGroups: ["networking.k8s.io"]
+            resources: ["ingresses", "ingresses/status", "ingressclasses"]
+            verbs: ["get", "list", "watch", "update"]
           ---
           apiVersion: rbac.authorization.k8s.io/v1
           kind: ClusterRoleBinding
@@ -113,73 +69,18 @@
             name: ingress-nginx
             namespace: ingress-nginx
           rules:
-          - apiGroups:
-            - ""
-            resources:
-            - namespaces
-            verbs:
-            - get
-          - apiGroups:
-            - ""
-            resources:
-            - configmaps
-            - pods
-            - secrets
-            - endpoints
-            verbs:
-            - get
-            - list
-            - watch
-          - apiGroups:
-            - ""
-            resources:
-            - services
-            verbs:
-            - get
-            - list
-            - watch
-          - apiGroups:
-            - networking.k8s.io
-            resources:
-            - ingresses
-            verbs:
-            - get
-            - list
-            - watch
-          - apiGroups:
-            - networking.k8s.io
-            resources:
-            - ingresses/status
-            verbs:
-            - update
-          - apiGroups:
-            - networking.k8s.io
-            resources:
-            - ingressclasses
-            verbs:
-            - get
-            - list
-            - watch
-          - apiGroups:
-            - coordination.k8s.io
-            resources:
-            - leases
-            verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-          - apiGroups:
-            - discovery.k8s.io
-            resources:
-            - endpointslices
-            verbs:
-            - get
-            - list
-            - watch
+          - apiGroups: [""]
+            resources: ["namespaces", "configmaps", "pods", "secrets", "endpoints", "services"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: ["networking.k8s.io"]
+            resources: ["ingresses", "ingresses/status", "ingressclasses"]
+            verbs: ["get", "list", "watch", "update"]
+          - apiGroups: ["coordination.k8s.io"]
+            resources: ["leases"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["discovery.k8s.io"]
+            resources: ["endpointslices"]
+            verbs: ["get", "list", "watch"]
           ---
           apiVersion: rbac.authorization.k8s.io/v1
           kind: RoleBinding
@@ -244,7 +145,8 @@
                 dnsPolicy: ClusterFirst
                 containers:
                 - name: controller
-                  image: docker.io/ingressnginx/controller:v1.10.1
+                  # ИСПОЛЬЗУЕМ ЗЕРКАЛО, КОТОРОЕ ТОЧНО РАБОТАЕТ
+                  image: liyanghz/ingress-nginx-controller:v1.10.1
                   imagePullPolicy: IfNotPresent
                   lifecycle:
                     preStop:
@@ -307,12 +209,11 @@
     - name: Cleanup old Ingress
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        kubectl delete namespace ingress-nginx --ignore-not-found=true --timeout=30s
-        # Ждем чуть-чуть
+        kubectl delete namespace ingress-nginx --ignore-not-found=true --timeout=10s
         sleep 10
       ignore_errors: yes
 
-    # 3. Применяем наш чистый файл
+    # 3. Применяем
     - name: Apply Clean Ingress Manifest
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
