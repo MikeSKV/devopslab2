@@ -1,5 +1,5 @@
 ---
-- name: Install Ingress Controller (No Webhook - Best for Lab)
+- name: Install Ingress Controller (Final Fix)
   hosts: k8s_master
   become: yes
   tasks:
@@ -13,35 +13,48 @@
         url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
         dest: /tmp/ingress-deploy.yaml
 
-    # 2. МЕНЯЕМ ОБРАЗ КОНТРОЛЛЕРА на доступный
+    # 2. Удаляем старый Ingress ПОЛНОСТЬЮ и ждем (чтобы не было конфликта Terminating)
+    - name: Cleanup old Ingress
+      shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl delete namespace ingress-nginx --ignore-not-found=true --timeout=60s
+      ignore_errors: yes
+
+    - name: Wait for namespace cleanup
+      pause:
+        seconds: 30
+
+    # 3. МЕНЯЕМ ОБРАЗ КОНТРОЛЛЕРА на доступный
     - name: Replace Controller Image
       replace:
         path: /tmp/ingress-deploy.yaml
         regexp: 'registry.k8s.io/ingress-nginx/controller:v1.10.1.*'
         replace: 'docker.io/ingressnginx/controller:v1.10.1'
 
-    # 3. УДАЛЯЕМ WEBHOOK CONFIGURATION (чтобы не запускать проблемные джобы)
-    # Это грубый, но эффективный метод для лабы. Мы просто закомментируем секцию ValidatingWebhookConfiguration
-    - name: Remove ValidatingWebhookConfiguration
+    # 4. ВЫРЕЗАЕМ WEBHOOK И JOBS (Аккуратно, удаляя целые блоки)
+    # Используем скрипт на python/sed для чистоты, или просто удаляем проблемные куски
+    - name: Remove Webhook and Jobs from YAML
       shell: |
+        # Удаляем ValidatingWebhookConfiguration целиком
         sed -i '/kind: ValidatingWebhookConfiguration/,/---/d' /tmp/ingress-deploy.yaml
-        # Также удаляем Job-ы, которые создают сертификаты (они нам теперь не нужны)
+        # Удаляем Job-ы целиком
         sed -i '/kind: Job/,/---/d' /tmp/ingress-deploy.yaml
-        sed -i '/kind: Job/,/---/d' /tmp/ingress-deploy.yaml 
+        # Удаляем ServiceAccount для admission (на всякий случай)
+        sed -i '/name: ingress-nginx-admission/,/---/d' /tmp/ingress-deploy.yaml
+        
+        # Исправляем возможные пустые строки в начале файла, которые ломают kubectl
+        sed -i '/^---$/d' /tmp/ingress-deploy.yaml
 
-    # 4. Применяем
+    # 5. Применяем
     - name: Apply Ingress Manifest
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        
-        # Сначала удалим ВСЁ старое, чтобы убить висящие джобы
-        kubectl delete -f /tmp/ingress-deploy.yaml --ignore-not-found=true
-        kubectl delete jobs -n ingress-nginx --all --ignore-not-found=true
-        
-        # Применяем облегченный манифест
+        # Создаем неймспейс вручную, если он удалился
+        kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+        # Применяем манифест
         kubectl apply -f /tmp/ingress-deploy.yaml
 
-    # 5. Ждем
+    # 6. Ждем
     - name: Wait for Ingress ready
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
