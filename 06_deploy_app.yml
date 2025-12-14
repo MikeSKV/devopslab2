@@ -1,5 +1,5 @@
 ---
-- name: Deploy Demo App (No Ingress)
+- name: Deploy Demo App (Mirror Fix)
   hosts: k8s_master
   become: yes
   tasks:
@@ -7,8 +7,14 @@
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
         
-        # Создаем Deployment (само приложение)
-        kubectl create deployment demo-app --image=httpd:alpine --replicas=2 --dry-run=client -o yaml | kubectl apply -f -
+        # Удаляем старое зависшее
+        kubectl delete deployment demo-app --ignore-not-found=true
+        kubectl delete service demo-app --ignore-not-found=true
         
-        # Создаем Service (сетевой доступ внутри кластера)
-        kubectl expose deployment demo-app --port=80 --target-port=80 --type=ClusterIP --dry-run=client -o yaml | kubectl apply -f -
+        # Создаем Deployment с образом NGINX с зеркала (registry.k8s.io обычно работает лучше чем docker hub сейчас)
+        # Или используем образ pause, чтобы хоть что-то запустить? Нет, нужен веб-сервер.
+        # Попробуем образ Google Samples (он легкий и часто доступен)
+        kubectl create deployment demo-app --image=gcr.io/google-samples/hello-app:1.0 --replicas=2 --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Создаем Service
+        kubectl expose deployment demo-app --port=80 --target-port=8080 --type=ClusterIP --dry-run=client -o yaml | kubectl apply -f -
