@@ -1,5 +1,5 @@
 ---
-- name: Deploy Demo App (Mirror Fix)
+- name: Deploy Demo App (Paulbouwer)
   hosts: k8s_master
   become: yes
   tasks:
@@ -7,14 +7,42 @@
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
         
-        # Удаляем старое зависшее
+        # Удаляем старое (чтобы не было конфликтов портов)
         kubectl delete deployment demo-app --ignore-not-found=true
         kubectl delete service demo-app --ignore-not-found=true
+        kubectl delete deployment hello-kubernetes --ignore-not-found=true
+        kubectl delete service hello-kubernetes-service --ignore-not-found=true
         
-        # Создаем Deployment с образом NGINX с зеркала (registry.k8s.io обычно работает лучше чем docker hub сейчас)
-        # Или используем образ pause, чтобы хоть что-то запустить? Нет, нужен веб-сервер.
-        # Попробуем образ Google Samples (он легкий и часто доступен)
-        kubectl create deployment demo-app --image=gcr.io/google-samples/hello-app:1.0 --replicas=2 --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Создаем Service
-        kubectl expose deployment demo-app --port=80 --target-port=8080 --type=ClusterIP --dry-run=client -o yaml | kubectl apply -f -
+        # Применяем манифест из методички (через cat <<EOF)
+        cat <<EOF | kubectl apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: hello-kubernetes
+        spec:
+          replicas: 2
+          selector:
+            matchLabels:
+              app: hello-kubernetes
+          template:
+            metadata:
+              labels:
+                app: hello-kubernetes
+            spec:
+              containers:
+              - name: hello-kubernetes
+                image: paulbouwer/hello-kubernetes:1.10
+                ports:
+                - containerPort: 8080
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: hello-kubernetes-service
+        spec:
+          ports:
+          - port: 80
+            targetPort: 8080
+          selector:
+            app: hello-kubernetes
+        EOF
