@@ -1,0 +1,18 @@
+---
+- name: Install Ingress Controller
+  hosts: k8s_master
+  become: yes
+  tasks:
+    - name: Apply Ingress Manifest
+      shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
+
+    - name: Wait for Ingress ready
+      shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=300s
+      ignore_errors: yes
