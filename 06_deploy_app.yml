@@ -1,33 +1,14 @@
 ---
-- name: Deploy Demo App
+- name: Deploy Demo App (No Ingress)
   hosts: k8s_master
   become: yes
   tasks:
-    - name: Deploy App and Ingress
+    - name: Deploy App and Service
       shell: |
         export KUBECONFIG=/etc/kubernetes/admin.conf
         
+        # Создаем Deployment (само приложение)
         kubectl create deployment demo-app --image=httpd:alpine --replicas=2 --dry-run=client -o yaml | kubectl apply -f -
-        kubectl expose deployment demo-app --port=80 --target-port=80 --type=ClusterIP --dry-run=client -o yaml | kubectl apply -f -
         
-        cat <<EOF | kubectl apply -f -
-        apiVersion: networking.k8s.io/v1
-        kind: Ingress
-        metadata:
-          name: demo-ingress
-          annotations:
-            nginx.ingress.kubernetes.io/rewrite-target: /
-        spec:
-          ingressClassName: nginx
-          rules:
-          - host: demo.local
-            http:
-              paths:
-              - path: /
-                pathType: Prefix
-                backend:
-                  service:
-                    name: demo-app
-                    port:
-                      number: 80
-        EOF
+        # Создаем Service (сетевой доступ внутри кластера)
+        kubectl expose deployment demo-app --port=80 --target-port=80 --type=ClusterIP --dry-run=client -o yaml | kubectl apply -f -
