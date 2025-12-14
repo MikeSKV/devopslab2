@@ -4,6 +4,8 @@
   become: yes
   vars:
     k8s_version: "1.30"
+    ansible_python_interpreter: /usr/bin/python3
+    
   tasks:
     # --- НАСТРОЙКА ХОСТОВ И DNS ---
     - name: Set hostname
@@ -44,26 +46,26 @@
         EOF
         sysctl --system
 
-    # --- УСТАНОВКА CONTAINERD ---
-    - name: Install required dependencies
+    # --- УСТАНОВКА ЗАВИСИМОСТЕЙ ---
+    - name: Install required basic packages
       apt:
         name: [apt-transport-https, ca-certificates, curl, gpg]
         state: present
         update_cache: yes
 
+    # Создаем папку для ключей (исправление ошибки)
+    - name: Ensure keyrings directory exists
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    # --- УСТАНОВКА CONTAINERD ---
     - name: Add Docker GPG key
       get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
         dest: /etc/apt/keyrings/docker.gpg
         mode: '0644'
-      vars: 
-        ansible_python_interpreter: /usr/bin/python3
-      pre_tasks:
-        - name: Ensure keyrings dir exists
-          file:
-             path: /etc/apt/keyrings
-             state: directory
-             mode: '0755'
 
     - name: Add Docker repository
       apt_repository:
