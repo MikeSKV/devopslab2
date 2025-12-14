@@ -5,9 +5,9 @@
   vars:
     k8s_version: "1.30"
     ansible_python_interpreter: /usr/bin/python3
-    
+
   tasks:
-    # --- НАСТРОЙКА ХОСТОВ И DNS ---
+    # --- НАСТРОЙКА ХОСТОВ ---
     - name: Set hostname
       hostname:
         name: "{{ hostname }}"
@@ -22,7 +22,7 @@
           192.168.1.94 k8s-worker-03
         marker: "# {mark} ANSIBLE MANAGED BLOCK K8S"
 
-    # --- СИСТЕМНЫЕ НАСТРОЙКИ ---
+    # --- СИСТЕМА ---
     - name: Disable swap
       shell: |
         swapoff -a
@@ -46,7 +46,6 @@
         EOF
         sysctl --system
 
-    # --- УСТАНОВКА ЗАВИСИМОСТЕЙ ---
     - name: Install required basic packages
       apt:
         name: [apt-transport-https, ca-certificates, curl, gpg, gnupg]
@@ -59,18 +58,29 @@
         state: directory
         mode: '0755'
 
-    # --- ИСПРАВЛЕННАЯ СЕКЦИЯ DOCKER ---
-    - name: Remove old Docker GPG key if exists (cleanup)
+    # --- DOCKER (ИСПРАВЛЕННАЯ ЛОГИКА С DEARMOR) ---
+    - name: Remove old Docker key (cleanup)
       file:
         path: /etc/apt/keyrings/docker.gpg
         state: absent
 
-    - name: Add Docker GPG key
+    # 1. Скачиваем текстовый ключ во временный файл
+    - name: Download Docker GPG key to temp
       get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
-        dest: /etc/apt/keyrings/docker.gpg
-        mode: '0644' # ВАЖНО: Права на чтение для всех
+        dest: /tmp/docker.key
+        mode: '0644'
         force: yes
+
+    # 2. Конвертируем его в бинарный формат .gpg (это то, чего хочет APT)
+    - name: Dearmor Docker GPG key
+      shell: cat /tmp/docker.key | gpg --dearmor -o /etc/apt/keyrings/docker.gpg --yes
+
+    # 3. Выставляем права на итоговый файл
+    - name: Set permissions on Docker keyring
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        mode: '0644'
 
     - name: Add Docker repository
       apt_repository:
@@ -78,7 +88,6 @@
         state: present
         filename: docker
 
-    # Обновляем кэш принудительно после добавления репо
     - name: Update apt cache
       apt:
         update_cache: yes
@@ -94,7 +103,7 @@
         sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
       notify: Restart containerd
 
-    # --- УСТАНОВКА KUBERNETES ---
+    # --- KUBERNETES ---
     - name: Download Kubernetes GPG key
       get_url:
         url: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key"
